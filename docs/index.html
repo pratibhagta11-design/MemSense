@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MemSense: watch memory fragment, then heal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap">
+<style>
+:root{--bg:#eef1f6;--card:#fff;--ink:#0f1b2d;--mut:#5b6678;--line:#d9dee8;--free:#e4e8f0;--a:#d9730d;--b:#0b8f8a;--bad:#c8344a;--good:#12805c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1220;--card:#131c2e;--ink:#e8edf6;--mut:#93a0b5;--line:#25314a;--free:#1b2740;--a:#f0974a;--b:#35c9c0;--bad:#ff6b80;--good:#3fd29b}}
+:root[data-theme="dark"]{--bg:#0b1220;--card:#131c2e;--ink:#e8edf6;--mut:#93a0b5;--line:#25314a;--free:#1b2740;--a:#f0974a;--b:#35c9c0;--bad:#ff6b80;--good:#3fd29b}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Bricolage Grotesque",system-ui,sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 18px 56px}
+h1{font-size:clamp(34px,6vw,60px);line-height:1;margin:0 0 10px;font-weight:800;letter-spacing:-.03em}
+.lede{max-width:62ch;color:var(--mut);margin:0 0 22px;font-size:18px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+label{display:flex;flex-direction:column;font-size:13px;color:var(--mut);gap:4px}
+select,input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
+input[type=range]{accent-color:var(--b);width:150px;min-height:40px}
+button{font:600 15px inherit;font-family:inherit;border:0;border-radius:8px;padding:0 16px;min-height:40px;cursor:pointer;background:var(--ink);color:var(--bg)}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+:focus-visible{outline:3px solid var(--b);outline-offset:2px}
+.verdict{border-radius:14px;padding:14px 18px;margin-bottom:14px;background:var(--ink);color:var(--bg);font-size:18px;font-weight:600}
+.verdict small{display:block;font-weight:400;opacity:.75;font-size:14px;margin-top:2px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card.a{border-top:5px solid var(--a)}.card.b{border-top:5px solid var(--b)}
+.hd{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.hd h2{font-size:22px;margin:0;font-weight:800}
+.chip{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--mut)}
+canvas{width:100%;display:block;border-radius:8px}
+.mem{height:150px}.chart{height:200px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 4px}
+.stats div{background:var(--bg);border-radius:10px;padding:8px 10px}
+.stats b{display:block;font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums}
+.stats span{font-size:12.5px;color:var(--mut)}
+.doc{display:flex;gap:12px;align-items:center;margin-top:10px;font-size:14px;color:var(--mut)}
+.grade{flex:none;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-size:26px;font-weight:800;color:#fff}
+.row2{display:grid;grid-template-columns:3fr 2fr;gap:14px;margin-top:14px}
+.log{list-style:none;margin:0;padding:0;max-height:232px;overflow:auto;font-size:14px}
+.log li{padding:8px 0;border-bottom:1px solid var(--line)}.log li:last-child{border:0}
+.log em{font-style:normal;color:var(--mut);margin-right:6px}
+.empty{color:var(--mut)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--mut);margin:10px 2px 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+@media(max-width:760px){.grid,.row2{grid-template-columns:1fr}.stats b{font-size:21px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MemSense</h1>
+<p class="lede">Memory gets chopped into small gaps until a big request fails. Run the same workload through a fixed allocator and through MemSense, and watch one of them fix itself.</p>
+
+<div class="bar">
+  <label>Workload<select id="wl"><option value="llm">LLM serving (growing blocks)</option><option value="bursty">Bursty large requests</option><option value="random">Random</option><option value="game">Game engine</option><option value="database">Database</option></select></label>
+  <label>Compare against<select id="st"><option value="first">First fit</option><option value="best">Best fit</option><option value="worst">Worst fit</option><option value="next">Next fit</option></select></label>
+  <label>Seed<input id="seed" type="number" value="1" min="1" max="99" style="width:80px"></label>
+  <label>Speed<input id="spd" type="range" min="1" max="30" value="8"></label>
+  <button id="play">Pause</button><button class="ghost" id="step">Step</button><button class="ghost" id="reset">Restart</button>
+</div>
+
+<div class="verdict" id="verdict" aria-live="polite"></div>
+
+<div class="grid">
+  <section class="card a"><div class="hd"><h2 id="nameA">First fit</h2><span class="chip" id="chipA">fixed strategy</span></div><canvas class="mem" id="mA" aria-label="Memory map of the fixed allocator"></canvas><div class="stats" id="sA"></div><div class="doc" id="dA"></div></section>
+  <section class="card b"><div class="hd"><h2>MemSense</h2><span class="chip" id="chipB">first fit</span></div><canvas class="mem" id="mB" aria-label="Memory map of MemSense"></canvas><div class="stats" id="sB"></div><div class="doc" id="dB"></div></section>
+</div>
+<div class="legend"><span><i style="background:var(--a)"></i>Live blocks (fixed)</span><span><i style="background:var(--b)"></i>Live blocks (MemSense)</span><span><i style="background:var(--free);border:1px solid var(--line)"></i>Free gap</span><span>Each memory map reads left to right, then wraps to the next row.</span></div>
+
+<div class="row2">
+  <section class="card"><div class="hd"><h2>Fragmentation over time</h2><span class="chip">lower is healthier</span></div><canvas class="chart" id="ch" aria-label="Fragmentation score over time for both allocators"></canvas></section>
+  <section class="card"><div class="hd"><h2>Why MemSense acted</h2></div><ul class="log" id="log"></ul></section>
+</div>
+</div>
+
+<script>
+const CAP={random:6500,bursty:7000,game:4600,database:4300,llm:5600};
+const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+function build(seed,ticks,arr,item,leak=0){const r=rng(seed),ri=(a,b)=>a+Math.floor(r()*(b-a+1)),sch={},ops=[];let n=0;
+ for(let t=0;t<ticks;t++){(sch[t]||[]).forEach(o=>ops.push(o));delete sch[t];
+  for(let k=arr(t,ri,r);k>0;k--){n++;const[sz,life,gr]=item(ri,r);ops.push(['a',n,sz]);if(r()<leak)continue;
+   gr.forEach(([d,s])=>(sch[t+d]=sch[t+d]||[]).push(['r',n,s]));(sch[t+life]=sch[t+life]||[]).push(['f',n]);}}
+ return ops}
+const WL={
+ random:s=>build(s,900,(t,i)=>i(0,2),(i,r)=>[i(8,220),i(5,70),[]],.01),
+ bursty:s=>build(s,900,(t,i)=>t%60<5?i(4,6):i(0,1),(i,r)=>r()<.3?[i(250,500),i(10,30),[]]:[i(8,64),i(30,120),[]]),
+ game:s=>build(s,900,(t,i)=>i(3,6),(i,r)=>r()<.01?[i(150,300),i(150,400),[]]:[i(8,48),i(2,20),[]]),
+ database:s=>build(s,900,(t,i)=>i(1,2),(i,r)=>r()<.01?[i(400,900),i(150,400),[]]:[i(16,96),i(4,40),[]]),
+ llm:s=>build(s,900,(t,i,r)=>r()<.4?1:0,(i,r)=>{let z=i(32,120),c=z,g=[],d=0;for(let k=i(3,6);k>0;k--){d+=i(6,12);c+=i(32,96);g.push([d,c])}return[z,d+i(2,10),g]})
+};
+class A{
+ constructor(cap,st){this.cap=cap;this.st=st;this.bl=[{s:0,z:cap,f:1}];this.map={};this.fail=0;this.cnt=0;this.comp=0;this.moved=0;this.clock=0;this.rv=0;this.id=0}
+ find(sz){const L=this.bl;let best=-1;
+  if(this.st=='next'){for(let k=0;k<L.length;k++){const i=(this.rv+k)%L.length;if(L[i].f&&L[i].z>=sz)return i}return -1}
+  for(let i=0;i<L.length;i++){const b=L[i];if(!b.f||b.z<sz)continue;if(this.st=='first')return i;
+   if(best<0||(this.st=='best'?b.z<L[best].z:b.z>L[best].z))best=i}return best}
+ try(sz){this.clock++;const i=this.find(sz);if(i<0)return null;const b=this.bl[i];
+  if(b.z>sz)this.bl.splice(i+1,0,{s:b.s+sz,z:b.z-sz,f:1});b.z=sz;b.f=0;b.h=++this.id;this.rv=i+1;this.map[b.h]=b;return b.h}
+ alloc(sz){this.cnt++;const h=this.try(sz);if(h==null)this.fail++;return h}
+ free(h){const b=this.map[h];if(!b)return;delete this.map[h];b.f=1;const L=this.bl;
+  for(let i=L.length-2;i>=0;i--)if(L[i].f&&L[i+1].f){L[i].z+=L[i+1].z;L.splice(i+1,1)}this.rv=0}
+ freeT(){return this.bl.reduce((a,b)=>a+(b.f?b.z:0),0)}
+ big(){return this.bl.reduce((a,b)=>b.f&&b.z>a?b.z:a,0)}
+ holes(){return this.bl.filter(b=>b.f).length}
+ used(){return this.cap-this.freeT()}
+ frag(avg){const fb=this.bl.filter(b=>b.f);if(!fb.length)return 0;const t=fb.reduce((a,b)=>a+b.z,0);
+  return .6*(1-Math.max(...fb.map(b=>b.z))/t)+.25*Math.min(fb.length/50,1)+.15*((t/fb.length)<avg?1:0)}
+ plan(){let p=0,m=0;for(const b of this.bl)if(!b.f){if(b.s!=p)m+=b.z;p+=b.z}return m}
+ compact(){const used=this.bl.filter(b=>!b.f),old=this.bl,snap=used.map(b=>[b,b.s]);let p=0,m=0;
+  used.forEach(b=>{if(b.s!=p){m+=b.z;b.s=p}p+=b.z});const L=[];p=0;
+  for(const b of used){if(b.s>p)L.push({s:p,z:b.s-p,f:1});L.push(b);p=b.s+b.z}if(p<this.cap)L.push({s:p,z:this.cap-p,f:1});
+  this.bl=L;this.rv=0;this.comp++;this.moved+=m;this.undo=[snap,m,old];return m}
+ undoC(){const[snap,m,old]=this.undo;snap.forEach(([b,s])=>b.s=s);this.bl=old;this.comp--;this.moved-=m}
+}
+class M extends A{
+ constructor(cap){super(cap,'first');this.w=[];this.wi=0;this.ops=0;this.sc=[];this.log=[];this.last=-1e9}
+ stats(){const w=this.w,n=w.length||1,avg=w.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(w.reduce((a,b)=>a+(b-avg)**2,0)/n);
+  return{avg:avg||1,cv:sd/Math.max(avg,1),big:w.filter(x=>x>this.cap*.04).length/n}}
+ say(m){this.log.unshift({op:this.ops,m});if(this.log.length>40)this.log.pop()}
+ alloc(sz){this.cnt++;this.w[this.wi++%64]=sz;let h=this.try(sz);
+  if(h==null&&this.freeT()>=sz){this.heal(`an allocation of ${sz} failed even though ${this.freeT()} units were free (largest gap ${this.big()}), so memory was too scattered`,this.stats().avg,1);h=this.try(sz)}
+  if(h==null)this.fail++;this.tick();return h}
+ free(h){super.free(h);this.tick()}
+ tick(){this.ops++;const s=this.stats();
+  if(this.ops%50==0){let n,why;
+   if(s.big>.25){n='best';why=`${Math.round(s.big*100)}% of recent requests are large, and best fit protects the big gaps`}
+   else if(s.cv>.8){n='best';why=`request sizes vary a lot (spread ${s.cv.toFixed(2)}), so best fit avoids wasting big gaps`}
+   else{n='first';why=`requests are fairly uniform (spread ${s.cv.toFixed(2)}), so cheap first fit is enough`}
+   if(n!=this.st){this.say(`Switched from ${this.st} fit to ${n} fit: ${why}.`);this.st=n}}
+  if(this.ops%20==0){this.sc.push(this.frag(s.avg));const r=this.sc.slice(-4);
+   if(r.length==4&&this.ops-this.last>=150&&r[0]<=r[1]&&r[1]<=r[2]&&r[2]<=r[3]&&r[3]-r[0]>.03&&r[3]>=.35)
+    this.heal(`fragmentation climbed from ${Math.round(r[0]*100)}% to ${Math.round(r[3]*100)}% over four checks, so it compacted before a request could fail`,s.avg,0)}}
+ heal(why,avg,force){const m=this.plan(),before=this.big(),gain=this.freeT()-before;
+  if(!force&&!(gain>=avg&&gain/Math.max(m,1)>.05))return;this.compact();this.last=this.ops;const after=this.big();
+  if(after<=before){this.undoC();this.say('Rolled back a compaction that did not enlarge the biggest gap.');return}
+  this.say(`Compacted because ${why}. Moved ${m} units; biggest gap grew from ${before} to ${after}.`)}
+}
+const $=id=>document.getElementById(id),css=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
+const NAMES={first:'First fit',best:'Best fit',worst:'Worst fit',next:'Next fit'};
+let sim,timer,playing=true;
+function init(){const w=$('wl').value,seed=+$('seed').value||1,cap=CAP[w];
+ sim={ops:WL[w](seed),i:0,cap,a:new A(cap,$('st').value),b:new M(cap),la:{},lb:{},tot:0,n:0,ha:[],hb:[]};
+ $('nameA').textContent=NAMES[$('st').value];$('play').textContent=playing?'Pause':'Play';draw()}
+function apply(al,L,op){if(op[0]=='a'){const h=al.alloc(op[2]);if(h!=null)L[op[1]]=h}
+ else if(op[0]=='f'){const h=L[op[1]];if(h!=null){al.free(h);delete L[op[1]]}}
+ else{const o=L[op[1]];if(o!=null){const h=al.alloc(op[2]);if(h!=null){al.free(o);L[op[1]]=h}}}}
+function advance(k){for(;k>0&&sim.i<sim.ops.length;k--){const op=sim.ops[sim.i];if(op[0]=='a'){sim.tot+=op[2];sim.n++}
+ apply(sim.a,sim.la,op);apply(sim.b,sim.lb,op);
+ if(sim.i%20==0){const avg=sim.tot/Math.max(sim.n,1);sim.ha.push(sim.a.frag(avg));sim.hb.push(sim.b.frag(avg))}sim.i++}
+ draw();if(sim.i>=sim.ops.length){playing=false;$('play').textContent='Replay'}}
+function loop(){if(playing)advance(+$('spd').value);timer=requestAnimationFrame(loop)}
+function drawMem(cv,al,hue0){const d=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*d;cv.height=H*d;
+ const g=cv.getContext('2d');g.scale(d,d);const rows=4,rh=(H-(rows-1)*4)/rows,per=al.cap/rows,dark=matchMedia('(prefers-color-scheme:dark)').matches&&document.documentElement.dataset.theme!='light'||document.documentElement.dataset.theme=='dark';
+ g.fillStyle=css('--free');g.fillRect(0,0,W,H);
+ for(let r=0;r<rows;r++){g.fillStyle=css('--free');g.fillRect(0,r*(rh+4),W,rh)}
+ for(const b of al.bl){if(b.f)continue;g.fillStyle=`hsl(${hue0+(b.h*37)%40},${dark?62:70}%,${(dark?48:44)+(b.h*13)%14}%)`;
+  let s=b.s,e=b.s+b.z;while(s<e){const r=Math.min(rows-1,Math.floor(s/per)),end=Math.min(e,(r+1)*per);
+   g.fillRect((s-r*per)/per*W,r*(rh+4),Math.max((end-s)/per*W-1,1),rh);s=end}}}
+function grade(s){return s<.2?['A','--good']:s<.4?['B','--good']:s<.6?['C','--a']:s<.8?['D','--bad']:['F','--bad']}
+function panel(al,s,d){const avg=sim.tot/Math.max(sim.n,1),sc=al.frag(avg),[gr,col]=grade(sc);
+ $(s).innerHTML=[[al.fail,'failed requests'],[Math.round(sc*100)+'%','fragmentation'],[Math.round(al.used()/al.cap*100)+'%','memory in use'],
+  [al.holes(),'gaps'],[al.comp,'compactions'],[al.moved,'units moved']].map(x=>`<div><b>${x[0]}</b><span>${x[1]}</span></div>`).join('');
+ const big=al.big(),fr=al.freeT();
+ $(d).innerHTML=`<div class="grade" style="background:var(${col})">${gr}</div><div>${al.holes()} gaps; the largest is ${fr?Math.round(big/fr*100):100}% of free memory. ${gr<'C'?'Healthy.':big<avg?'The largest gap is smaller than the average request.':'Getting scattered.'}</div>`}
+function drawChart(){const cv=$('ch'),d=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;cv.width=W*d;cv.height=H*d;
+ const g=cv.getContext('2d');g.scale(d,d);const P=28,N=Math.max(sim.ops.length/20,2);g.font='12px system-ui';g.fillStyle=css('--mut');g.strokeStyle=css('--line');
+ for(let v=0;v<=1;v+=.25){const y=H-P-(H-P-8)*v;g.beginPath();g.moveTo(P,y);g.lineTo(W,y);g.stroke();g.fillText(Math.round(v*100)+'%',0,y+4)}
+ [[sim.ha,'--a'],[sim.hb,'--b']].forEach(([h,c])=>{g.strokeStyle=css(c);g.lineWidth=2.5;g.beginPath();
+  h.forEach((v,i)=>{const x=P+(W-P)*i/N,y=H-P-(H-P-8)*Math.min(v,1);i?g.lineTo(x,y):g.moveTo(x,y)});g.stroke()});g.lineWidth=1;
+ g.fillStyle=css('--mut');g.fillText('time',W-30,H-8)}
+function draw(){drawMem($('mA'),sim.a,28);drawMem($('mB'),sim.b,178);panel(sim.a,'sA','dA');panel(sim.b,'sB','dB');drawChart();
+ $('chipB').textContent=sim.b.st+' fit (auto)';$('chipA').textContent='fixed strategy';
+ const fa=sim.a.fail,fb=sim.b.fail,nm=NAMES[$('st').value];
+ $('verdict').innerHTML=sim.i<30?`Running ${$('wl').selectedOptions[0].text.toLowerCase()}…`:
+  fb<fa?`MemSense has ${fa-fb} fewer failed requests than ${nm.toLowerCase()} (${fb} vs ${fa}).<small>It moved ${sim.b.moved} units of memory to get there.</small>`:
+  fb==fa?`Tied with ${nm.toLowerCase()} so far (${fa} failed requests each).<small>Not every workload needs healing.</small>`:
+  `${nm} is ahead here (${fa} vs ${fb} failed requests).<small>On easy workloads, compaction can cost more than it saves.</small>`;
+ $('log').innerHTML=sim.b.log.length?sim.b.log.slice(0,8).map(l=>`<li><em>step ${l.op}</em>${l.m}</li>`).join(''):'<li class="empty">Nothing yet. MemSense only acts when it sees a reason, and it explains each decision here.</li>'}
+$('play').onclick=()=>{if(sim.i>=sim.ops.length){init();playing=true}else playing=!playing;$('play').textContent=playing?'Pause':'Play'};
+$('step').onclick=()=>{playing=false;$('play').textContent='Play';advance(25)};
+['reset'].forEach(i=>$(i).onclick=()=>{playing=true;init()});
+['wl','st','seed'].forEach(i=>$(i).onchange=()=>{playing=true;init()});
+addEventListener('resize',()=>draw());
+init();loop();
+</script>
+</body>
+</html>

@@ -16,6 +16,11 @@ Long-running systems (servers, databases, game engines, GPU memory for LLMs) slo
 6. **Fragmentation Doctor**: health grade (A-F), diagnosis and prescription. Plus a **leak detector**.
 7. **Oracle mode**: replay any workload or your own trace under every policy and get a recommendation.
 
+## Live visual simulator (UI)
+Open `docs/index.html` in any browser (double-click it). Pick a workload, and watch a fixed allocator and MemSense run side by side: memory maps, fragmentation graph, health grades, and a plain-English log of every MemSense decision.
+
+To get a public link: on GitHub go to **Settings > Pages**, set the source to branch `main` and folder `/docs`, then add the link to this README.
+
 ## Quick start (Python 3.9+, no installs needed)
 ```bash
 python cli.py demo -w llm                  # watch MemSense think + Doctor report
