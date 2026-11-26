@@ -1,13 +1,10 @@
-name: tests
+name: build-and-test
 on: [push, pull_request]
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install pytest
-      - run: pytest -q
-      - run: python cli.py benchmark --seeds 2
+      - run: make
+      - run: make test
+      - run: ./memsense benchmark --seeds 2

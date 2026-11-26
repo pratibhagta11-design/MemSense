@@ -1,4 +1,8 @@
-__pycache__/
-*.pyc
-.pytest_cache/
+memsense
+test_allocator
+*.o
 trace.csv
+
+*.exe
+
+*.exe
