@@ -1,0 +1,4 @@
+# Core MemSense uses only the Python standard library.
+# Optional (for fragmentation graphs and running tests):
+matplotlib
+pytest
